@@ -1,0 +1,195 @@
+blueprint:
+  name: "Zigbee2MQTT - Bouton universel (MQTT action → lampe)"
+  description: >
+    Blueprint universel pour boutons Zigbee via Zigbee2MQTT.
+    Écoute un topic MQTT (JSON) et lit payload_json.action pour piloter une lampe:
+    on/off/toggle + actions de dimming (brightness_move_up/down + stop) et actions type single/double/hold.
+    Dimming sans blocage: boucle limitée dans le temps, stoppable par brightness_stop.
+  domain: automation
+  input:
+    mqtt_topic:
+      name: "Topic MQTT du bouton"
+      description: "Exemple: zigbee2mqtt/button_chambre"
+      selector:
+        text: {}
+
+    light_target:
+      name: "Lampe à contrôler"
+      selector:
+        target:
+          entity:
+            domain: light
+
+    # Actions (adaptables)
+    action_on:
+      name: "Valeur action = ON"
+      default: "on"
+      selector:
+        text: {}
+    action_off:
+      name: "Valeur action = OFF"
+      default: "off"
+      selector:
+        text: {}
+    action_toggle:
+      name: "Valeur action = TOGGLE"
+      default: "toggle"
+      selector:
+        text: {}
+
+    action_single:
+      name: "Valeur action = SINGLE (optionnel)"
+      default: "single"
+      selector:
+        text: {}
+    action_double:
+      name: "Valeur action = DOUBLE (optionnel)"
+      default: "double"
+      selector:
+        text: {}
+    action_hold:
+      name: "Valeur action = HOLD (optionnel)"
+      default: "hold"
+      selector:
+        text: {}
+
+    # Dimming IKEA / autres
+    action_dim_up:
+      name: "Valeur action = dim up (appui long +)"
+      default: "brightness_move_up"
+      selector:
+        text: {}
+    action_dim_down:
+      name: "Valeur action = dim down (appui long -)"
+      default: "brightness_move_down"
+      selector:
+        text: {}
+    action_dim_stop:
+      name: "Valeur action = dim stop (relâche)"
+      default: "brightness_stop"
+      selector:
+        text: {}
+
+    # Paramètres dimming
+    dim_step_pct:
+      name: "Pas luminosité (%) par tick"
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: slider
+          unit_of_measurement: "%"
+    dim_tick_ms:
+      name: "Intervalle dimming (ms)"
+      default: 250
+      selector:
+        number:
+          min: 50
+          max: 1000
+          mode: slider
+          unit_of_measurement: ms
+    dim_max_duration_s:
+      name: "Durée max dimming (secondes) - évite le blocage"
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: slider
+          unit_of_measurement: s
+
+mode: restart
+
+trigger:
+  - platform: mqtt
+    topic: !input mqtt_topic
+
+variables:
+  act: "{{ trigger.payload_json.action | default('') }}"
+  light_target: !input light_target
+
+  action_on: !input action_on
+  action_off: !input action_off
+  action_toggle: !input action_toggle
+
+  action_single: !input action_single
+  action_double: !input action_double
+  action_hold: !input action_hold
+
+  action_dim_up: !input action_dim_up
+  action_dim_down: !input action_dim_down
+  action_dim_stop: !input action_dim_stop
+
+  dim_step_pct: !input dim_step_pct
+  dim_tick_ms: !input dim_tick_ms
+  dim_max_duration_s: !input dim_max_duration_s
+
+  # Nombre de répétitions (arrondi vers le haut)
+  dim_repeat_count: >-
+    {{ ((dim_max_duration_s * 1000) / dim_tick_ms) | round(0, 'ceil') | int }}
+
+action:
+  - choose:
+      # ON / OFF / TOGGLE
+      - conditions: "{{ act == action_on }}"
+        sequence:
+          - service: light.turn_on
+            target: "{{ light_target }}"
+
+      - conditions: "{{ act == action_off }}"
+        sequence:
+          - service: light.turn_off
+            target: "{{ light_target }}"
+
+      - conditions: "{{ act == action_toggle }}"
+        sequence:
+          - service: light.toggle
+            target: "{{ light_target }}"
+
+      # SINGLE / DOUBLE / HOLD (par défaut: toggle / toggle / toggle, modifiable si tu veux)
+      - conditions: "{{ act == action_single }}"
+        sequence:
+          - service: light.toggle
+            target: "{{ light_target }}"
+
+      - conditions: "{{ act == action_double }}"
+        sequence:
+          - service: light.toggle
+            target: "{{ light_target }}"
+
+      - conditions: "{{ act == action_hold }}"
+        sequence:
+          - service: light.toggle
+            target: "{{ light_target }}"
+
+      # DIM UP
+      - conditions: "{{ act == action_dim_up }}"
+        sequence:
+          - repeat:
+              count: "{{ dim_repeat_count }}"
+              sequence:
+                - service: light.turn_on
+                  target: "{{ light_target }}"
+                  data:
+                    brightness_step_pct: "{{ dim_step_pct }}"
+                - delay:
+                    milliseconds: "{{ dim_tick_ms }}"
+
+      # DIM DOWN
+      - conditions: "{{ act == action_dim_down }}"
+        sequence:
+          - repeat:
+              count: "{{ dim_repeat_count }}"
+              sequence:
+                - service: light.turn_on
+                  target: "{{ light_target }}"
+                  data:
+                    brightness_step_pct: "{{ 0 - dim_step_pct }}"
+                - delay:
+                    milliseconds: "{{ dim_tick_ms }}"
+
+      # DIM STOP (avec ce blueprint "simple", le stop sert surtout à couper une exécution en cours)
+      - conditions: "{{ act == action_dim_stop }}"
+        sequence:
+          - stop: "Stop dimming request received"

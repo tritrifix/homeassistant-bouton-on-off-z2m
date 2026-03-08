@@ -1,0 +1,164 @@
+blueprint:
+  name: "Zigbee2MQTT - Bouton (actions directes par valeur 'action')"
+  description: >
+    Déclenche des actions Home Assistant différentes selon la valeur
+    de payload_json.action publiée par Zigbee2MQTT sur un topic MQTT.
+    Objectif: configurer directement quoi faire pour ON/OFF/SINGLE/DOUBLE/HOLD,
+    dimming (move up/down/stop), etc., sans coder de YAML à chaque fois.
+
+    Prérequis:
+    - Zigbee2MQTT publie un JSON sur le topic choisi (ex: zigbee2mqtt/mon_bouton)
+    - le JSON contient la clé 'action' (ex: {"action":"on"}).
+
+  domain: automation
+
+  input:
+    mqtt_topic:
+      name: Topic MQTT du bouton
+      description: "Exemple: zigbee2mqtt/button_chambre"
+      selector:
+        text: {}
+
+    # Valeurs d'action (adaptables selon ton matériel)
+    action_on:
+      name: Valeur action pour ON
+      default: "on"
+      selector: { text: {} }
+    action_off:
+      name: Valeur action pour OFF
+      default: "off"
+      selector: { text: {} }
+    action_toggle:
+      name: Valeur action pour TOGGLE
+      default: "toggle"
+      selector: { text: {} }
+
+    action_single:
+      name: Valeur action pour SINGLE
+      default: "single"
+      selector: { text: {} }
+    action_double:
+      name: Valeur action pour DOUBLE
+      default: "double"
+      selector: { text: {} }
+    action_hold:
+      name: Valeur action pour HOLD
+      default: "hold"
+      selector: { text: {} }
+
+    action_dim_up:
+      name: Valeur action pour DIM UP (appui long +)
+      default: "brightness_move_up"
+      selector: { text: {} }
+    action_dim_down:
+      name: Valeur action pour DIM DOWN (appui long -)
+      default: "brightness_move_down"
+      selector: { text: {} }
+    action_dim_stop:
+      name: Valeur action pour DIM STOP (relâche)
+      default: "brightness_stop"
+      selector: { text: {} }
+
+    # Actions HA à exécuter (tu les règles directement dans l'UI)
+    on_actions:
+      name: Actions quand ON
+      default: []
+      selector:
+        action: {}
+
+    off_actions:
+      name: Actions quand OFF
+      default: []
+      selector:
+        action: {}
+
+    toggle_actions:
+      name: Actions quand TOGGLE
+      default: []
+      selector:
+        action: {}
+
+    single_actions:
+      name: Actions quand SINGLE
+      default: []
+      selector:
+        action: {}
+
+    double_actions:
+      name: Actions quand DOUBLE
+      default: []
+      selector:
+        action: {}
+
+    hold_actions:
+      name: Actions quand HOLD
+      default: []
+      selector:
+        action: {}
+
+    dim_up_actions:
+      name: Actions quand DIM UP
+      default: []
+      selector:
+        action: {}
+
+    dim_down_actions:
+      name: Actions quand DIM DOWN
+      default: []
+      selector:
+        action: {}
+
+    dim_stop_actions:
+      name: Actions quand DIM STOP
+      default: []
+      selector:
+        action: {}
+
+mode: restart
+
+trigger:
+  - platform: mqtt
+    topic: !input mqtt_topic
+
+variables:
+  act: "{{ trigger.payload_json.action | default('') }}"
+
+  action_on: !input action_on
+  action_off: !input action_off
+  action_toggle: !input action_toggle
+  action_single: !input action_single
+  action_double: !input action_double
+  action_hold: !input action_hold
+  action_dim_up: !input action_dim_up
+  action_dim_down: !input action_dim_down
+  action_dim_stop: !input action_dim_stop
+
+action:
+  - choose:
+      - conditions: "{{ act == action_on }}"
+        sequence: !input on_actions
+
+      - conditions: "{{ act == action_off }}"
+        sequence: !input off_actions
+
+      - conditions: "{{ act == action_toggle }}"
+        sequence: !input toggle_actions
+
+      - conditions: "{{ act == action_single }}"
+        sequence: !input single_actions
+
+      - conditions: "{{ act == action_double }}"
+        sequence: !input double_actions
+
+      - conditions: "{{ act == action_hold }}"
+        sequence: !input hold_actions
+
+      - conditions: "{{ act == action_dim_up }}"
+        sequence: !input dim_up_actions
+
+      - conditions: "{{ act == action_dim_down }}"
+        sequence: !input dim_down_actions
+
+      - conditions: "{{ act == action_dim_stop }}"
+        sequence: !input dim_stop_actions
+    default: []

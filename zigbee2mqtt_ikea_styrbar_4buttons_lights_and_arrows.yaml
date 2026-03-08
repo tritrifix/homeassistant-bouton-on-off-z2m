@@ -1,0 +1,198 @@
+blueprint:
+  name: "Zigbee2MQTT - IKEA STYRBAR (E2001/E2002/E2313) : lampe + actions flèches"
+  description: >
+    Blueprint Home Assistant pour télécommande IKEA STYRBAR via Zigbee2MQTT.
+    Écoute un topic MQTT (JSON) et utilise payload_json.action avec les valeurs :
+
+    on, off,
+    brightness_move_up, brightness_move_down, brightness_stop,
+    arrow_left_click, arrow_left_hold, arrow_left_release,
+    arrow_right_click, arrow_right_hold, arrow_right_release.
+
+    Fonctionnalités :
+    - ON/OFF sur une lampe
+    - Variation de luminosité (dimming) "simple" et sûre (pas de blocage) :
+      * brightness_move_up -> monte pendant une durée max
+      * brightness_move_down -> descend pendant une durée max
+      * brightness_stop -> stoppe immédiatement le dimming en cours
+    - Flèche gauche/droite :
+      * click : actions au choix
+      * hold : actions au choix
+      * release : actions au choix (optionnel)
+
+  domain: automation
+
+  input:
+    mqtt_topic:
+      name: "Topic MQTT Zigbee2MQTT de la STYRBAR"
+      description: "Ex: zigbee2mqtt/styrbar_salon (le topic qui publie le JSON avec action)"
+      selector:
+        text: {}
+
+    light_target:
+      name: "Lampe à contrôler (ON/OFF + luminosité)"
+      selector:
+        target:
+          entity:
+            domain: light
+
+    # Réglages dimming
+    dim_step_pct:
+      name: "Pas de luminosité (%) par tick"
+      default: 7
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: slider
+          unit_of_measurement: "%"
+
+    dim_tick_ms:
+      name: "Intervalle dimming (ms)"
+      default: 250
+      selector:
+        number:
+          min: 50
+          max: 1000
+          mode: slider
+          unit_of_measurement: ms
+
+    dim_max_duration_s:
+      name: "Durée max du dimming (secondes) — évite tout blocage"
+      default: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          mode: slider
+          unit_of_measurement: s
+
+    # Actions flèches gauche
+    arrow_left_click_actions:
+      name: "Flèche gauche - clic (action au choix)"
+      default: []
+      selector:
+        action: {}
+
+    arrow_left_hold_actions:
+      name: "Flèche gauche - appui long (action au choix)"
+      default: []
+      selector:
+        action: {}
+
+    arrow_left_release_actions:
+      name: "Flèche gauche - relâche (action au choix, optionnel)"
+      default: []
+      selector:
+        action: {}
+
+    # Actions flèches droite
+    arrow_right_click_actions:
+      name: "Flèche droite - clic (action au choix)"
+      default: []
+      selector:
+        action: {}
+
+    arrow_right_hold_actions:
+      name: "Flèche droite - appui long (action au choix)"
+      default: []
+      selector:
+        action: {}
+
+    arrow_right_release_actions:
+      name: "Flèche droite - relâche (action au choix, optionnel)"
+      default: []
+      selector:
+        action: {}
+
+mode: restart
+
+trigger:
+  - platform: mqtt
+    topic: !input mqtt_topic
+
+variables:
+  act: "{{ trigger.payload_json.action | default('') }}"
+  light_target: !input light_target
+
+  dim_step_pct: !input dim_step_pct
+  dim_tick_ms: !input dim_tick_ms
+  dim_max_duration_s: !input dim_max_duration_s
+
+  # Nombre de répétitions max (arrondi au dessus)
+  dim_repeat_count: >-
+    {{ ((dim_max_duration_s * 1000) / dim_tick_ms) | round(0, 'ceil') | int }}
+
+action:
+  - choose:
+      # --------
+      # LAMPE: ON / OFF
+      # --------
+      - conditions: "{{ act == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target: "{{ light_target }}"
+
+      - conditions: "{{ act == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target: "{{ light_target }}"
+
+      # --------
+      # LAMPE: DIMMING (simple + sans blocage)
+      # --------
+      - conditions: "{{ act == 'brightness_move_up' }}"
+        sequence:
+          - repeat:
+              count: "{{ dim_repeat_count }}"
+              sequence:
+                - service: light.turn_on
+                  target: "{{ light_target }}"
+                  data:
+                    brightness_step_pct: "{{ dim_step_pct }}"
+                - delay:
+                    milliseconds: "{{ dim_tick_ms }}"
+
+      - conditions: "{{ act == 'brightness_move_down' }}"
+        sequence:
+          - repeat:
+              count: "{{ dim_repeat_count }}"
+              sequence:
+                - service: light.turn_on
+                  target: "{{ light_target }}"
+                  data:
+                    brightness_step_pct: "{{ 0 - dim_step_pct }}"
+                - delay:
+                    milliseconds: "{{ dim_tick_ms }}"
+
+      # brightness_stop : on stoppe l'exécution en cours (mode restart),
+      # ce qui a pour effet d'arrêter le dimming immédiatement.
+      - conditions: "{{ act == 'brightness_stop' }}"
+        sequence:
+          - stop: "Dimming stopped"
+
+      # --------
+      # FLÈCHE GAUCHE
+      # --------
+      - conditions: "{{ act == 'arrow_left_click' }}"
+        sequence: !input arrow_left_click_actions
+
+      - conditions: "{{ act == 'arrow_left_hold' }}"
+        sequence: !input arrow_left_hold_actions
+
+      - conditions: "{{ act == 'arrow_left_release' }}"
+        sequence: !input arrow_left_release_actions
+
+      # --------
+      # FLÈCHE DROITE
+      # --------
+      - conditions: "{{ act == 'arrow_right_click' }}"
+        sequence: !input arrow_right_click_actions
+
+      - conditions: "{{ act == 'arrow_right_hold' }}"
+        sequence: !input arrow_right_hold_actions
+
+      - conditions: "{{ act == 'arrow_right_release' }}"
+        sequence: !input arrow_right_release_actions
+
+    default: []
