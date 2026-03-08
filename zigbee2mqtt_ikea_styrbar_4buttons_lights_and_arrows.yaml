@@ -36,36 +36,71 @@ blueprint:
           entity:
             domain: light
 
-    # Réglages dimming
-    dim_step_pct:
-      name: "Pas de luminosité (%) par tick"
-      default: 7
+    # Paramètres de transition et luminosité
+    transition_switch:
+      name: "Temps de transition on/off (secondes)"
+      description: "Transition time en secondes pour allumer/éteindre (0.0-10.0)"
+      default: 1
+      selector:
+        number:
+          min: 0.0
+          max: 10.0
+          mode: box
+          step: 0.5
+    
+    step_up:
+      name: "Pas luminosité UP (%)"
+      description: "Step size pour augmenter la luminosité (0-20)"
+      default: 5
+      selector:
+        number:
+          min: 0.0
+          max: 20.0
+          mode: box
+          step: 1.0
+    
+    step_down:
+      name: "Pas luminosité DOWN (%)"
+      description: "Step size pour diminuer la luminosité (-20 à 0)"
+      default: -5
+      selector:
+        number:
+          min: -20.0
+          max: 0.0
+          mode: box
+          step: 1.0
+    
+    transition_dim:
+      name: "Temps de transition dimming (secondes)"
+      description: "Transition time en secondes pour dimming. 0 = pas de transition, >0.1 = plus fluide (0.0-10.0)"
+      default: 0.5
+      selector:
+        number:
+          min: 0.0
+          max: 10.0
+          mode: box
+          step: 0.5
+    
+    pause_dim:
+      name: "Pause entre chaque étape de dimming (ms)"
+      description: "Délai entre chaque étape de dimming en millisecondes (10-2000)"
+      default: 500
+      selector:
+        number:
+          min: 10.0
+          max: 2000.0
+          mode: box
+          step: 10.0
+    
+    dim_repeat_count:
+      name: "Nombre de répétitions dimming"
+      description: "Nombre maximum d'étapes pour le dimming (1-30)"
+      default: 20
       selector:
         number:
           min: 1
           max: 30
           mode: slider
-          unit_of_measurement: "%"
-
-    dim_tick_ms:
-      name: "Intervalle dimming (ms)"
-      default: 250
-      selector:
-        number:
-          min: 50
-          max: 1000
-          mode: slider
-          unit_of_measurement: ms
-
-    dim_max_duration_s:
-      name: "Durée max du dimming (secondes) — évite tout blocage"
-      default: 3
-      selector:
-        number:
-          min: 1
-          max: 10
-          mode: slider
-          unit_of_measurement: s
 
     # Actions flèches gauche
     arrow_left_click_actions:
@@ -115,13 +150,12 @@ variables:
   act: "{{ trigger.payload_json.action | default('') }}"
   light_target: !input light_target
 
-  dim_step_pct: !input dim_step_pct
-  dim_tick_ms: !input dim_tick_ms
-  dim_max_duration_s: !input dim_max_duration_s
-
-  # Nombre de répétitions max (arrondi au dessus)
-  dim_repeat_count: >-
-    {{ ((dim_max_duration_s * 1000) / dim_tick_ms) | round(0, 'ceil') | int }}
+  transition_switch: !input transition_switch
+  step_up: !input step_up
+  step_down: !input step_down
+  transition_dim: !input transition_dim
+  pause_dim: !input pause_dim
+  dim_repeat_count: !input dim_repeat_count
 
 action:
   - choose:
@@ -132,11 +166,15 @@ action:
         sequence:
           - service: light.turn_on
             target: "{{ light_target }}"
+            data:
+              transition: "{{ transition_switch }}"
 
       - conditions: "{{ act == 'off' }}"
         sequence:
           - service: light.turn_off
             target: "{{ light_target }}"
+            data:
+              transition: "{{ transition_switch }}"
 
       # --------
       # LAMPE: DIMMING (simple + sans blocage)
@@ -149,9 +187,10 @@ action:
                 - service: light.turn_on
                   target: "{{ light_target }}"
                   data:
-                    brightness_step_pct: "{{ dim_step_pct }}"
+                    transition: "{{ transition_dim }}"
+                    brightness_step_pct: "{{ step_up }}"
                 - delay:
-                    milliseconds: "{{ dim_tick_ms }}"
+                    milliseconds: "{{ pause_dim }}"
 
       - conditions: "{{ act == 'brightness_move_down' }}"
         sequence:
@@ -161,9 +200,10 @@ action:
                 - service: light.turn_on
                   target: "{{ light_target }}"
                   data:
-                    brightness_step_pct: "{{ 0 - dim_step_pct }}"
+                    transition: "{{ transition_dim }}"
+                    brightness_step_pct: "{{ step_down }}"
                 - delay:
-                    milliseconds: "{{ dim_tick_ms }}"
+                    milliseconds: "{{ pause_dim }}"
 
       # brightness_stop : on stoppe l'exécution en cours (mode restart),
       # ce qui a pour effet d'arrêter le dimming immédiatement.
